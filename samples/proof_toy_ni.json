@@ -1,0 +1,24 @@
+{
+  "mode": "noninteractive",
+  "k": 1,
+  "transcript": {
+    "T_list": [
+      552,
+      212,
+      26
+    ],
+    "E": 9,
+    "c": 55,
+    "u_a": [
+      18,
+      54,
+      11
+    ],
+    "u_r": [
+      43,
+      36,
+      22
+    ]
+  },
+  "tampered": false
+}

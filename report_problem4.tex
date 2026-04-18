@@ -1,0 +1,656 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{setspace}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!60!black,
+  citecolor=blue!60!black,
+  linktoc=all,
+  pdftitle={CS6160 Assignment 1 -- Problem 4: ZKP of Polynomial Evaluation},
+  pdfauthor={Divyansh Sevta, Nishanth D.}
+}
+\lstdefinestyle{pythonstyle}{
+  language=Python, basicstyle=\ttfamily\small,
+  frame=single, breaklines=true,
+  keywordstyle=\color{blue!70!black},
+  commentstyle=\color{green!50!black},
+  columns=fullflexible, showstringspaces=false
+}
+\lstdefinestyle{bashstyle}{
+  language=bash, basicstyle=\ttfamily\small,
+  frame=single, breaklines=true,
+  columns=fullflexible, showstringspaces=false
+}
+\lstdefinestyle{jsonstyle}{
+  basicstyle=\ttfamily\small,
+  frame=single, breaklines=true,
+  columns=fullflexible, showstringspaces=false
+}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{CS6160: Advanced Topics in Cryptology}
+\rhead{Assignment 1 -- Problem 4}
+\cfoot{\thepage}
+\titleformat{\section}{\large\bfseries}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.5em}{}
+\setstretch{1.15}
+\setcounter{tocdepth}{2}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{definition}{Definition}
+
+\begin{document}
+
+\begin{titlepage}
+\centering
+\vspace*{0.6cm}
+{\Large\bfseries Indian Institute of Technology Hyderabad\par}
+\vspace{0.35cm}
+{\large Department of Computer Science and Engineering\par}
+\vspace{0.2cm}
+{\large\textit{CS6160: Advanced Topics in Cryptology}\par}
+\vspace{0.7cm}
+\rule{0.78\textwidth}{0.6pt}\par
+\vspace{0.6cm}
+{\LARGE\bfseries Programming Assignment 1 --- Problem 4\par}
+\vspace{0.3cm}
+{\Large Zero-Knowledge Proof of Knowledge and\\ Correct Evaluation of a Secret Polynomial\par}
+\vspace{0.6cm}
+\rule{0.78\textwidth}{0.6pt}\par
+\vspace{0.9cm}
+\begin{minipage}{0.72\textwidth}
+\centering
+\begin{tabular}{@{}rl@{}}
+\textbf{Group Member 1:} & Divyansh Sevta \\
+\textbf{Roll Number:}    & CS25MTECH14018 \\
+\textbf{Group Member 2:} & Nishanth D. \\
+\textbf{Roll Number:}    & CS25MTECH14020 \\
+\end{tabular}
+\end{minipage}
+\vspace{0.8cm}
+
+\vspace{0.5cm}
+{\textbf{Instructor:} Dr.~Maria Francis \qquad \textbf{Semester:} Spring 2026}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+\begin{abstract}
+We design and implement a zero-knowledge proof system by which a prover
+convinces a verifier that (i) the prover knows the coefficients
+$a_0,\dots,a_d \in \mathbb{Z}_q$ of a secret polynomial $P(x)$ that match
+public Pedersen commitments $C_0,\dots,C_d$, and (ii) $P(z) \equiv y \pmod q$
+for a publicly supplied point $z$ and claimed value $y$. The protocol is
+a parallel per-coefficient $\Sigma$-protocol with a single shared
+challenge, augmented by a scalar evaluation-consistency check that binds
+the opening of each commitment to the claimed evaluation. We prove
+completeness, $2$-special-soundness with a full-witness extractor, and
+perfect honest-verifier zero-knowledge. Both a multi-round interactive
+protocol and a Fiat--Shamir non-interactive variant are implemented in
+pure Python 3 with only \texttt{hashlib}, \texttt{secrets}, and standard
+built-ins; no external cryptographic library is used.
+\end{abstract}
+
+\section{Introduction}
+
+Polynomials are a fundamental object in modern cryptography: polynomial
+commitments (KZG, Bulletproofs, FRI) underpin SNARKs, STARKs, and
+verifiable secret-sharing. In this assignment we consider the simplest
+instance of this pattern. The prover holds a secret polynomial of degree
+$d$ over $\mathbb{Z}_q$; the public parameters include Pedersen
+commitments to each coefficient and a challenge point $z$. The prover
+must convince a verifier that the polynomial evaluates to a claimed
+value $y$ at $z$, without revealing any coefficient.
+
+Our construction is deliberately elementary: we do not rely on pairings
+or on polynomial interpolation tricks. Instead we run $d+1$ parallel
+Schnorr proofs of knowledge of the individual Pedersen openings, share a
+single challenge across them, and attach one extra scalar equation that
+binds the coefficients to $y$. This yields an efficient $\Sigma$-protocol
+that provably meets the assignment's soundness requirement: from two
+accepting transcripts with distinct challenges, one can extract the
+\emph{full} witness $(a_0,\dots,a_d, r_0,\dots,r_d)$.
+
+\section{Preliminaries}
+
+\subsection{Cyclic group and discrete log assumption}
+
+Let $p$ be a prime and $q$ a prime divisor of $p-1$. Let $G_q \subseteq
+\mathbb{Z}_p^{*}$ be the unique subgroup of order $q$ with public
+generator $g$. We additionally fix an \emph{independent} generator
+$h \in G_q$ such that $\log_g h$ is unknown. All exponent arithmetic is
+in $\mathbb{Z}_q$; all group-element arithmetic is in $\mathbb{Z}_p^{*}$.
+
+\begin{definition}[Discrete Logarithm Problem]
+Given $g, y \in G_q$, find $x \in \mathbb{Z}_q$ with $g^x = y \pmod p$.
+\end{definition}
+
+We assume DLP is hard in $G_q$. The binding property of the Pedersen
+commitment below reduces to this assumption.
+
+\subsection{Pedersen commitment}
+
+\begin{definition}[Pedersen Commitment]
+For $v \in \mathbb{Z}_q$ and $r \xleftarrow{\$} \mathbb{Z}_q$,
+\[
+\mathrm{Com}(v;\,r) \;=\; g^{v}\,h^{r} \pmod p.
+\]
+\end{definition}
+
+\paragraph{Perfect hiding.} The map $r \mapsto h^{r}$ is a bijection from
+$\mathbb{Z}_q$ onto $G_q$. For any fixed $v$, the distribution of
+$g^{v}h^{r}$ over uniform $r$ is the uniform distribution on $G_q$,
+independent of $v$. Hence Pedersen is \emph{perfectly} hiding.
+
+\paragraph{Computational binding.} Suppose an adversary opens a single
+commitment $C$ two ways: $C = g^{a}h^{r} = g^{a'}h^{r'}$ with
+$(a,r)\neq(a',r')$. Then $g^{\,a-a'} = h^{\,r'-r}$, giving
+$\log_g h = (a-a')(r'-r)^{-1} \bmod q$. Under the DL assumption this is
+infeasible, so Pedersen commitments are computationally binding.
+
+\section{Problem Statement}
+
+\paragraph{Public inputs.} $(G_q, q, g, h)$; polynomial degree $d$;
+coefficient commitments $C_0,\dots,C_d$; evaluation point
+$z \in \mathbb{Z}_q$; claimed value $y \in \mathbb{Z}_q$; rounds $k$.
+
+\paragraph{Witness.} $\mathbf{w} = (a_0,\dots,a_d,\; r_0,\dots,r_d)
+\in \mathbb{Z}_q^{2(d+1)}$.
+
+\paragraph{Relation.}
+\[
+\mathcal{R} \;=\; \Bigl\{\bigl((C_0,\dots,C_d,z,y);\;\mathbf{w}\bigr)
+\;:\; C_i = g^{a_i}h^{r_i}\ \forall i,\
+\textstyle\sum_{i=0}^{d} a_i z^{i} \equiv y \pmod q \Bigr\}.
+\]
+
+A valid protocol must satisfy completeness, computational soundness, and
+(honest-verifier) zero-knowledge. A knowledge-sound protocol, moreover,
+must admit a \emph{knowledge extractor} that, given sufficient
+transcripts, outputs a witness in $\mathcal{R}$.
+
+\section{Why Naive Aggregation Fails}
+
+A tempting shortcut is to aggregate commitments as
+$C_{\mathrm{eval}} = \prod_i C_i^{z^i}$, observe that
+$C_{\mathrm{eval}} = g^{P(z)} h^{R}$ with $R = \sum_i r_i z^{i}$, and
+run a single Schnorr PoK of $R$ over $D = C_{\mathrm{eval}}\cdot g^{-y}$.
+
+The extractor for this single-aggregate protocol outputs only the scalar
+$\hat{R} = \sum_i r_i z^{i}$; it cannot recover any individual $a_i$ or
+$r_i$. The assignment's statement ``I know coefficients corresponding to
+$C_0,\dots,C_d$'' therefore fails the proof-of-knowledge requirement.
+We fix this by running \emph{parallel} openings in a single combined
+$\Sigma$-protocol, while still enforcing the evaluation constraint as a
+scalar equation on the responses.
+
+\section{The Parallel Per-Coefficient $\Sigma$-Protocol}
+
+\subsection{Protocol}
+
+\textbf{Statements verified:} (1) $g^{a_i} h^{r_i} = C_i$ for all $i$;
+(2) $\sum_{i=0}^{d} a_i z^{i} \equiv y \pmod q$.
+
+\begin{center}
+\begin{tabular}{p{0.48\textwidth} c p{0.42\textwidth}}
+\toprule
+\textbf{Prover} & & \textbf{Verifier}\\
+\midrule
+For $i=0,\dots,d$: $\ k_{i,a}, k_{i,r} \xleftarrow{\$} \mathbb{Z}_q$ & & \\
+$T_i \leftarrow g^{k_{i,a}} h^{k_{i,r}} \pmod p$ & & \\
+$E \leftarrow \sum_{i=0}^{d} k_{i,a}\, z^{i} \pmod q$ & & \\
+$\text{send } (T_0,\dots,T_d,\,E)$ & $\longrightarrow$ & \\
+                                   & $\xleftarrow{c}$ & $c \xleftarrow{\$} \mathbb{Z}_q$ \\
+For each $i$: & & \\
+$\quad u_{i,a} = k_{i,a} + c\cdot a_i \pmod q$ & & \\
+$\quad u_{i,r} = k_{i,r} + c\cdot r_i \pmod q$ & & \\
+$\text{send } \{(u_{i,a},u_{i,r})\}_{i=0}^{d}$ & $\longrightarrow$ & \\
+& & \textbf{Check (V1):} for all $i$,\\
+& & $\quad g^{u_{i,a}} h^{u_{i,r}} \stackrel{?}{=} T_i \cdot C_i^{c} \pmod p$\\
+& & \textbf{Check (V\_eval):}\\
+& & $\quad \sum_{i} u_{i,a} z^{i} \stackrel{?}{\equiv} E + c\cdot y \pmod q$\\
+& & Accept iff both checks pass. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Repeat independently $k$ times with fresh nonces to amplify soundness.
+
+\subsection{Why the evaluation check binds}
+
+Computing $\sum_i u_{i,a}\, z^{i}$ honestly gives
+\[
+\sum_{i=0}^{d} u_{i,a}\, z^{i}
+= \sum_{i=0}^{d}\bigl(k_{i,a}+c\,a_i\bigr)\, z^{i}
+= \underbrace{\sum_{i} k_{i,a}\, z^{i}}_{=\,E}
++ c\,\underbrace{\sum_i a_i\, z^{i}}_{=\,P(z)}.
+\]
+Check (V\_eval) therefore passes iff $P(z)=y$. Crucially, $E$ is committed
+in the first message, before $c$ is chosen, so the prover cannot adapt it.
+
+\paragraph{Does $E$ leak?} $E=\sum_i k_{i,a}z^{i}$ is a fixed linear
+combination of independent uniform random variables in $\mathbb{Z}_q$;
+it is uniformly distributed on $\mathbb{Z}_q$, independent of the
+coefficients $a_i$.
+
+\section{Fiat--Shamir Non-Interactive Version}
+
+Replace the verifier's random challenge with a hash of every public
+element and the first message:
+\[
+c = H\bigl(\mathsf{tag} \,\|\, g \,\|\, h \,\|\, p \,\|\, q
+\,\|\, C_0 \,\|\, \cdots \,\|\, C_d \,\|\, z \,\|\, y
+\,\|\, T_0 \,\|\, \cdots \,\|\, T_d \,\|\, E\bigr) \bmod q,
+\]
+where $H=\mathrm{SHA\text{-}256}$, $\mathsf{tag}$ is a protocol
+identifier, and each field is serialised as a $4$-byte big-endian length
+prefix followed by its big-endian byte representation. Length prefixing
+removes encoding ambiguity; the tag provides domain separation.
+
+\paragraph{Security in the ROM.} Security follows from the Forking
+Lemma of Pointcheval--Stern~\cite{ps2000}: a successful forger can be
+rewound to produce two accepting transcripts sharing the same
+$(T_0,\dots,T_d,E)$ but distinct challenges, from which the extractor
+of Section~\ref{sec:security} recovers the full witness, contradicting
+either binding or DL hardness.
+
+\section{Security Analysis}\label{sec:security}
+
+\begin{theorem}[Completeness]
+An honest prover holding $(a_i,r_i)$ with $P(z)=y$ is always accepted.
+\end{theorem}
+\begin{proof}
+\textbf{(V1):} $g^{u_{i,a}}h^{u_{i,r}} = g^{k_{i,a}+ca_i}h^{k_{i,r}+cr_i}
+= (g^{k_{i,a}}h^{k_{i,r}})(g^{a_i}h^{r_i})^{c} = T_i\cdot C_i^{c}$.
+\textbf{(V\_eval):} $\sum_i u_{i,a}z^{i} = \sum_i k_{i,a}z^{i}
++ c\sum_i a_i z^{i} = E + c\cdot P(z) = E + cy$.
+\end{proof}
+
+\begin{theorem}[Special Soundness --- Full Witness Extraction]
+Given two accepting transcripts that share the same first message
+$(T_0,\dots,T_d,E)$ but have distinct challenges $c\neq c'$:
+\[
+(T_\ast,E,c,\{(u_{i,a},u_{i,r})\})\quad\text{and}\quad
+(T_\ast,E,c',\{(u'_{i,a},u'_{i,r})\}),
+\]
+one can efficiently extract the full witness
+$(\hat a_0,\dots,\hat a_d,\hat r_0,\dots,\hat r_d)$ with
+$C_i = g^{\hat a_i}h^{\hat r_i}$ for all $i$ and
+$\sum_i \hat a_i z^{i} = y$.
+\end{theorem}
+\begin{proof}
+Let $\delta = (c-c') \in \mathbb{Z}_q^{*}$. From (V1) on both transcripts:
+$g^{u_{i,a}-u'_{i,a}} h^{u_{i,r}-u'_{i,r}} = C_i^{\,c-c'} = C_i^{\delta}$.
+Setting
+\[
+\hat a_i = (u_{i,a}-u'_{i,a})\,\delta^{-1},\qquad
+\hat r_i = (u_{i,r}-u'_{i,r})\,\delta^{-1}\quad (\bmod\ q)
+\]
+gives $g^{\hat a_i}h^{\hat r_i}=C_i$. Subtracting the two (V\_eval)
+equations yields $\sum_i(u_{i,a}-u'_{i,a})z^{i} = (c-c')y = \delta y$;
+dividing by $\delta$ gives $\sum_i \hat a_i z^{i} = y$. The extractor
+outputs all $2(d+1)$ witness components.
+\end{proof}
+
+The soundness error per round is $1/q$, negligible in the bit-length of
+$q$; $k$ independent rounds reduce it to $1/q^{k}$.
+
+\begin{theorem}[Perfect Honest-Verifier Zero-Knowledge]
+A PPT simulator without the witness produces transcripts identically
+distributed to real transcripts.
+\end{theorem}
+\begin{proof}[Proof sketch]
+Simulator: pick $c \xleftarrow{\$} \mathbb{Z}_q$; for each $i$ pick
+$u_{i,a}, u_{i,r} \xleftarrow{\$} \mathbb{Z}_q$; define
+$T_i \leftarrow g^{u_{i,a}}h^{u_{i,r}} C_i^{-c}$; define
+$E \leftarrow \sum_i u_{i,a}z^{i} - cy$. Output
+$(T_i, E, c, \{(u_{i,a},u_{i,r})\})$. Both (V1) and (V\_eval) hold by
+construction. In a real run the responses $u_{i,a}=k_{i,a}+ca_i$ are
+uniform and independent of $c$ because $k_{i,a}$ is; $T_i$ and $E$ are
+uniquely determined by $(c,u_{i,a},u_{i,r},C_i,y)$ via the same formulae
+as the simulator. Hence real and simulated distributions are identical.
+\end{proof}
+
+\section{Implementation}
+
+All code is Python 3. The only standard-library imports are
+\texttt{hashlib}, \texttt{secrets}, \texttt{random}, \texttt{json},
+\texttt{os}, \texttt{sys}, and \texttt{time}. No external cryptographic
+or ZK library is used, per the assignment constraint.
+
+\subsection{File layout}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{File} & \textbf{Role} \\
+\midrule
+\texttt{generate\_inputs.py}   & Input generator (primes, generators, witness)\\
+\texttt{Problem4.py}           & NI and interactive-hash prover/verifier\\
+\texttt{prover\_interactive.py}    & Live two-program prover (Variant B)\\
+\texttt{verifier\_interactive.py}  & Live two-program verifier (Variant B)\\
+\texttt{public.json}           & Public inputs (read by both sides)\\
+\texttt{private.json}          & Prover's witness\\
+\texttt{proof.json}            & Proof transcript (prover $\to$ verifier)\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Core $\Sigma$-protocol}
+
+\begin{lstlisting}[style=pythonstyle, caption={Commit, response, and verification.}]
+def commit_phase(d, z, g, h, p, q):
+    k_a = [secrets.randbelow(q) for _ in range(d + 1)]
+    k_r = [secrets.randbelow(q) for _ in range(d + 1)]
+    T_list = [(pow(g, ka, p) * pow(h, kr, p)) % p
+              for ka, kr in zip(k_a, k_r)]
+    E, zp = 0, 1
+    for ka in k_a:
+        E  = (E + ka * zp) % q
+        zp = (zp * z)      % q
+    return T_list, E, k_a, k_r
+
+def response_phase(c, coeffs, randomness, k_a, k_r, q):
+    u_a = [(ka + c * a) % q for ka, a in zip(k_a, coeffs)]
+    u_r = [(kr + c * r) % q for kr, r in zip(k_r, randomness)]
+    return u_a, u_r
+
+def verify_checks(C_list, z, y, T_list, E, c, u_a, u_r, g, h, p, q):
+    for C, T, ua, ur in zip(C_list, T_list, u_a, u_r):
+        lhs = (pow(g, ua, p) * pow(h, ur, p)) % p
+        rhs = (T * pow(C, c, p)) % p
+        if lhs != rhs:
+            return False
+    lhs_eval, zp = 0, 1
+    for ua in u_a:
+        lhs_eval = (lhs_eval + ua * zp) % q
+        zp       = (zp * z)             % q
+    return lhs_eval == (E + c * y) % q
+\end{lstlisting}
+
+\subsection{Fiat--Shamir challenge}
+
+\begin{lstlisting}[style=pythonstyle, caption={Canonical length-prefixed SHA-256 challenge.}]
+def _enc_int(n):
+    raw = n.to_bytes((n.bit_length() + 7) // 8 or 1, "big")
+    return len(raw).to_bytes(4, "big") + raw
+
+def fs_challenge_ni(g, h, p, q, commitments, z, y, T_list, E):
+    H = hashlib.sha256()
+    H.update(b"ZKP-POLY-FS-v1:")
+    for v in (g, h, p, q):
+        H.update(_enc_int(v))
+    H.update(_enc_int(len(commitments)))
+    for C in commitments:
+        H.update(_enc_int(C))
+    H.update(_enc_int(z))
+    H.update(_enc_int(y))
+    for T in T_list:
+        H.update(_enc_int(T))
+    H.update(_enc_int(E))
+    return int.from_bytes(H.digest(), "big") % q
+\end{lstlisting}
+
+\subsection{Two interactive variants}
+
+\paragraph{Variant A --- hash-derived per-round challenge.} A single
+program runs $k$ rounds, using a separate domain tag and round index
+in the hash:
+\[
+c_j = H\bigl(\mathsf{"ZKP\text{-}POLY\text{-}INT\text{-}v1:"} \,\|\, j
+\,\|\, \text{public} \,\|\, T_0^{(j)} \,\|\, \dots \,\|\, T_d^{(j)}
+\,\|\, E^{(j)}\bigr) \bmod q.
+\]
+The verifier recomputes $c_j$ independently, so a malicious prover
+cannot grind it. This matches the soundness of the Fiat--Shamir variant
+per round.
+
+\paragraph{Variant B --- live two-program exchange.} The prover and
+verifier are separate processes communicating via a file-based message
+queue under \texttt{./session/}. Per round $j$ the prover writes
+\texttt{round\_j\_A.json} (commit), the verifier samples
+$c_j \xleftarrow{\$} \mathbb{Z}_q$ and writes \texttt{round\_j\_B.json}
+(challenge), the prover reads it and writes \texttt{round\_j\_C.json}
+(response), and the verifier writes \texttt{round\_j\_V.json} (per-round
+verdict). This faithfully realises the classical $\Sigma$-protocol
+message flow.
+
+\section{Input Generator}
+
+\texttt{generate\_inputs.py} produces \texttt{public.json} and
+\texttt{private.json} entirely from scratch. Allowed imports are
+\texttt{hashlib} (SHA-256 only), \texttt{secrets}, \texttt{random},
+\texttt{json}, and \texttt{sys}; all cryptographic primitives are
+hand-written.
+
+\subsection{Miller--Rabin primality test}
+
+\begin{lstlisting}[style=pythonstyle]
+def is_prime(n):
+    if n < 2: return False
+    for p in _SMALL_PRIMES:
+        if n == p: return True
+        if n % p == 0: return False
+    d, r = n - 1, 0
+    while d % 2 == 0:
+        d //= 2; r += 1
+    bases = _DETERMINISTIC_BASES if n < (1 << 82) \
+            else [2 + secrets.randbelow(n - 3) for _ in range(40)]
+    for a in bases:
+        if a % n == 0: continue
+        x = pow(a, d, n)
+        if x == 1 or x == n - 1: continue
+        composite = True
+        for _ in range(r - 1):
+            x = x * x % n
+            if x == n - 1: composite = False; break
+        if composite: return False
+    return True
+\end{lstlisting}
+
+Using the deterministic base set $\{2,3,5,7,11,13,17,19,23,29,31,37\}$
+the test is \emph{exact} for all $n < 3.3\cdot10^{24}$; above that we
+fall back to $40$ random bases (error probability $\le 2^{-80}$).
+
+\subsection{Safe-prime search and generators}
+
+We sample a random $b$-bit odd integer $q$, prefilter by small-prime
+trial division on both $q$ and $p = 2q+1$, then Miller--Rabin-test each.
+A generator of the order-$q$ subgroup is obtained as $g = x^{2} \bmod p$
+for random $x$, verifying $g \ne 1$ and $g^{q} \equiv 1$.
+
+The second generator $h$ is produced by one of two user-selected methods:
+
+\begin{itemize}
+  \item[\texttt{--h-mode hash}]
+    Hash-to-subgroup: $h = x^{2} \bmod p$ where
+    $x = \mathrm{SHA256}(\mathsf{"ZKP\text{-}POLY\text{-}H\text{-}v1"} \| \text{ctr})
+    \bmod p$, with counter incremented until the result has order $q$
+    and is distinct from $\{0,1,g\}$. No one (prover, verifier, or
+    designer) knows $\log_g h$.
+  \item[\texttt{--h-mode discard}]
+    Sample $s \xleftarrow{\$} \mathbb{Z}_q^{*}$, set $h = g^{s} \bmod p$,
+    then discard $s$. This is trapdoor in principle (whoever ran the
+    generator once knew $s$), so the hash-to-subgroup method is
+    preferred in production.
+\end{itemize}
+
+\subsection{Parameter-size flag}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Flag} & \textbf{Size of $q$} & \textbf{Purpose} \\
+\midrule
+\texttt{--size toy}   & $q=101$ (PDF's example)       & Human-readable grading \\
+\texttt{--size small} & $128$ bits                    & Fast end-to-end runs \\
+\texttt{--size full}  & $256$ bits                    & Production demo \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Testing and Results}
+
+\subsection{End-to-end test matrix}
+
+All six $\{\text{toy, small, full}\}\times\{\text{hash, discard}\}$
+combinations produce valid inputs and pass every proof mode. A tampered
+proof (where the first response scalar is shifted by $+1 \bmod q$) is
+correctly rejected in every case.
+
+\begin{center}
+\begin{tabular}{llccc}
+\toprule
+\textbf{size} & \textbf{h-mode} & \textbf{NI} & \textbf{interactive-hash} & \textbf{NI-tampered} \\
+\midrule
+toy   & hash    & ACCEPT & ACCEPT & REJECT \\
+toy   & discard & ACCEPT & ACCEPT & REJECT \\
+small & hash    & ACCEPT & ACCEPT & REJECT \\
+small & discard & ACCEPT & ACCEPT & REJECT \\
+full  & hash    & ACCEPT & ACCEPT & REJECT \\
+full  & discard & ACCEPT & ACCEPT & REJECT \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The live two-program variant (\texttt{prover\_interactive.py} /
+\texttt{verifier\_interactive.py}) was also exercised with $k=4$ rounds
+on 128-bit parameters and produced ACCEPT.
+
+\subsection{Concrete toy example}
+
+\begin{lstlisting}[style=jsonstyle, caption={\texttt{public.json} (toy)}]
+{
+  "p": 607, "q": 101, "g": 7, "h": 49,
+  "d": 2,   "k": 3,
+  "commitments": [346, 270, 552],
+  "z": 9,   "y": 5
+}
+\end{lstlisting}
+
+\begin{lstlisting}[style=jsonstyle, caption={\texttt{private.json} (toy)}]
+{ "coeffs":     [33, 92, 63],
+  "randomness": [70, 39, 10] }
+\end{lstlisting}
+
+Verification: $P(9) = 33 + 92\cdot 9 + 63\cdot 81 = 33 + 828 + 5103 = 5964
+\equiv 5 \pmod{101}$. \checkmark
+
+\begin{lstlisting}[style=jsonstyle, caption={\texttt{proof.json}
+(non-interactive, after running \texttt{Problem4.py prover --mode noninteractive})}]
+{
+  "mode": "noninteractive",
+  "transcript": {
+    "T_list": [552, 212, 26],
+    "E":      9,
+    "c":      55,
+    "u_a":    [18, 54, 11],
+    "u_r":    [43, 36, 22]
+  },
+  "tampered": false
+}
+\end{lstlisting}
+
+\textbf{Verifier output:} \texttt{ACCEPT}. Manually check (V\_eval):
+$\sum_i u_{i,a}\cdot 9^{i} = 18 + 54\cdot 9 + 11\cdot 81
+ = 18 + 486 + 891 = 1395 \equiv 82 \pmod{101}$, and
+$E + cy = 9 + 55\cdot 5 = 284 \equiv 82 \pmod{101}$. \checkmark
+
+\subsection{REJECT example}
+
+Re-running the prover with \texttt{--tamper} shifts $u_{0,a}$ by $+1
+\bmod q$. The verifier prints \texttt{REJECT}.
+
+\subsection{Reproduction}
+
+\begin{lstlisting}[style=bashstyle]
+# 1. generate inputs
+python generate_inputs.py --size small --h-mode hash \
+                          --degree 3 --rounds 4
+
+# 2. non-interactive proof
+python Problem4.py prover   --mode noninteractive
+python Problem4.py verifier                       # ACCEPT
+
+# 3. single-program interactive (hash-derived challenge)
+python Problem4.py prover   --mode interactive-hash
+python Problem4.py verifier                       # ACCEPT
+
+# 4. live two-program interactive
+python verifier_interactive.py &                  # shell A
+python prover_interactive.py                      # shell B
+
+# 5. tamper demo
+python Problem4.py prover   --mode noninteractive --tamper
+python Problem4.py verifier                       # REJECT
+\end{lstlisting}
+
+\section{Security Summary}
+
+\begin{center}
+\begin{tabular}{p{0.27\textwidth} p{0.67\textwidth}}
+\toprule
+\textbf{Property} & \textbf{Statement}\\
+\midrule
+Completeness      & Honest $(a_i,r_i)$ with $P(z)=y$ always pass (V1) and (V\_eval).\\
+Special Soundness & Two transcripts with $(c\ne c')$ on same first message extract the \emph{full} $2(d+1)$-dim witness.\\
+Perfect HVZK      & Real and simulated transcripts are identically distributed.\\
+Evaluation Binding& (V\_eval) forces $\sum_i a_i z^{i}=y$; cheating requires either a false $E$ (caught by extraction) or breaking DL.\\
+Non-interactive   & Fiat--Shamir in ROM yields a NIZK of equivalent security via the Forking Lemma.\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Conclusion}
+
+We delivered a from-scratch implementation of a zero-knowledge proof of
+knowledge and correct evaluation of a secret polynomial, satisfying all
+requirements of the assignment: Pedersen commitments, a multi-round
+interactive $\Sigma$-protocol, a Fiat--Shamir non-interactive variant,
+rigorous completeness / special-soundness / HVZK proofs, and an input
+generator built without external cryptographic libraries. The design
+extracts the \emph{full} witness (not just an aggregated linear
+combination), which strictly meets the proof-of-knowledge standard.
+
+\section*{References}
+\begin{enumerate}
+  \item T.~P.~Pedersen, ``Non-Interactive and Information-Theoretic
+        Secure Verifiable Secret Sharing,'' \textit{CRYPTO 1991}.
+  \item C.~P.~Schnorr, ``Efficient Identification and Signatures for
+        Smart Cards,'' \textit{CRYPTO 1989}.
+  \item M.~Bellare and P.~Rogaway, ``Random Oracles are Practical,''
+        \textit{ACM CCS 1993}.
+  \item \label{ps2000} D.~Pointcheval and J.~Stern, ``Security Proofs
+        for Signature Schemes,'' \textit{Journal of Cryptology}, 2000.
+  \item D.~Boneh and V.~Shoup, \textit{A Graduate Course in Applied
+        Cryptography}, 2023.
+\end{enumerate}
+
+\section*{Anti-Plagiarism Statement}
+We certify that this submission is entirely our own work. All references
+are cited appropriately. No external cryptographic library was used.
+
+\vspace{1cm}
+\textbf{Names:} Divyansh Sevta, Nishanth D. \qquad \textbf{Date:} \today
+\end{document}

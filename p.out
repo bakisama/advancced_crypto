@@ -1,0 +1,19 @@
+[PROVER] session = ./session
+[PROVER] k = 4 rounds, d = 3
+[PROVER] round 0: sent commit (T_list, E)
+[PROVER] round 0: got challenge c = 7393395092321647454759698986861507005
+[PROVER] round 0: sent response (u_a, u_r)
+[PROVER] round 0: verifier says ok
+[PROVER] round 1: sent commit (T_list, E)
+[PROVER] round 1: got challenge c = 79845284475381614828474531563617218735
+[PROVER] round 1: sent response (u_a, u_r)
+[PROVER] round 1: verifier says ok
+[PROVER] round 2: sent commit (T_list, E)
+[PROVER] round 2: got challenge c = 134504374299885091745305072094736389181
+[PROVER] round 2: sent response (u_a, u_r)
+[PROVER] round 2: verifier says ok
+[PROVER] round 3: sent commit (T_list, E)
+[PROVER] round 3: got challenge c = 130544290037154069581986629392197014728
+[PROVER] round 3: sent response (u_a, u_r)
+[PROVER] round 3: verifier says ok
+[PROVER] all rounds sent.  Wait for verifier's final verdict.

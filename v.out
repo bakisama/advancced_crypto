@@ -1,0 +1,16 @@
+[VERIFIER] session = ./session
+[VERIFIER] k = 4 rounds
+[VERIFIER] round 0: got commit
+[VERIFIER] round 0: sent challenge c = 7393395092321647454759698986861507005
+[VERIFIER] round 0: check = ok
+[VERIFIER] round 1: got commit
+[VERIFIER] round 1: sent challenge c = 79845284475381614828474531563617218735
+[VERIFIER] round 1: check = ok
+[VERIFIER] round 2: got commit
+[VERIFIER] round 2: sent challenge c = 134504374299885091745305072094736389181
+[VERIFIER] round 2: check = ok
+[VERIFIER] round 3: got commit
+[VERIFIER] round 3: sent challenge c = 130544290037154069581986629392197014728
+[VERIFIER] round 3: check = ok
+ACCEPT
+[VERIFIER] transcript written to transcript_interactive.json

@@ -1,0 +1,15 @@
+[PROVER] session = ./session
+[PROVER] k = 3 rounds, d = 2
+[PROVER] round 0: sent commit (T_list, E)
+[PROVER] round 0: got challenge c = 45
+[PROVER] round 0: sent response (u_a, u_r)
+[PROVER] round 0: verifier says ok
+[PROVER] round 1: sent commit (T_list, E)
+[PROVER] round 1: got challenge c = 9
+[PROVER] round 1: sent response (u_a, u_r)
+[PROVER] round 1: verifier says ok
+[PROVER] round 2: sent commit (T_list, E)
+[PROVER] round 2: got challenge c = 83
+[PROVER] round 2: sent response (u_a, u_r)
+[PROVER] round 2: verifier says ok
+[PROVER] all rounds sent.  Wait for verifier's final verdict.

@@ -1,0 +1,13 @@
+[VERIFIER] session = ./session
+[VERIFIER] k = 3 rounds
+[VERIFIER] round 0: got commit
+[VERIFIER] round 0: sent challenge c = 45
+[VERIFIER] round 0: check = ok
+[VERIFIER] round 1: got commit
+[VERIFIER] round 1: sent challenge c = 9
+[VERIFIER] round 1: check = ok
+[VERIFIER] round 2: got commit
+[VERIFIER] round 2: sent challenge c = 83
+[VERIFIER] round 2: check = ok
+ACCEPT
+[VERIFIER] transcript written to samples/transcript_toy_live.json
